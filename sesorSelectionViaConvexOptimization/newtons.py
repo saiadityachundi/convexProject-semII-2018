@@ -2,17 +2,31 @@
 
 import math
 import numpy as np
+import cvxpy as cvx
 
 global m,n,ka,A,z,g,H           # g is gradient, and H is hessian of \psi(z)
-global ns,nd,ls                 # ns is newton step in descent direction. ls is the step size.
+global ns,nd,ls,k                 # ns is newton step in descent direction. ls is the step size.
 n=20                            # dimension of x, the parameter
 m=100                           # Total number of sensors
 sgm=1/math.sqrt(math.sqrt(n))   # variance for randomly choosing a1,a2,...,am
 ka=0.001                        # Quality of approximation, kappa
 #sgm=1
 
+k=30
+
 A=sgm*np.random.randn(m,n)
 
+### Solving the problem using cvx
+z=cvx.Variable(m)
+obj=cvx.Maximize(cvx.log_det((A.T)*cvx.diag(z)*A))
+const=[np.ones((1,m))*z==k,0<=z,z<=1]
+prob=cvx.Problem(obj,const)
+
+result=prob.solve()
+print "cvx method:",result
+###
+
+### Solving the problem using newton's method
 def comp_gH():
     global m,n,ka,A,z,g,H
 
@@ -80,19 +94,40 @@ def comp_ns():                  # Compute newton step
     while(psi(z+ls*ns)<p+ls*b*(g.dot(ns))):
         ls=t*ls
 
-k=30.0                            # No. of sesors to select from m sensors
-z=(float(k)/m)*np.ones(m)              # Initial guess of feasible z
-comp_gH()
-comp_ns()
-#z=z+ls*ns
-#nd=float('inf')
-ctr=0
-while(nd>0.0001):
-    print "ctr,ls,ns,psi:",ctr,ls,psi(z)
-    z=z+ls*ns
+k=30                            # No. of sesors to select from m sensors
+def solve():
+    global m,n,ka,ls,k
+    global z,ns,nd,g,H
+    z=(float(k)/m)*np.ones(m)              # Initial guess of feasible z
     comp_gH()
     comp_ns()
-    #z=z+ls*ns
-    ctr+=1
+    ctr=0
+    while(nd>0.0001):
+        #print "ctr,ls,ns,psi:",ctr,ls,psi(z)
+        z=z+ls*ns
+        comp_gH()
+        comp_ns()
+        ctr+=1
+    #print ctr
+    print "newtons method:",psi(z)
 
-print ctr
+    ### Now we have z*. Let's estimate z^ from z*.
+    z=z.tolist()
+    for i in xrange(m):
+        z[i]=(z[i],i)
+    z.sort(reverse=True)
+    
+    zh=[]
+    u=[]
+    for i in xrange(m):
+        if(i<k):
+            zh.append(z[i][1])
+        else:
+            u.append(z[i][1])
+    print z
+    print zh
+    print u
+    return zh,u
+
+solve()
+###

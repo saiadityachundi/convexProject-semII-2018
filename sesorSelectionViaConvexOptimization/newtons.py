@@ -4,15 +4,15 @@ import math
 import numpy as np
 import cvxpy as cvx
 
-global m,n,ka,A,z,g,H           # g is gradient, and H is hessian of \psi(z)
-global ns,nd,ls,k                 # ns is newton step in descent direction. ls is the step size.
+global m,n,ka,A,z,g,H,zs        # g is gradient, and H is hessian of \psi(z)
+global ns,nd,ls,k,SH            # ns is newton step in descent direction. ls is the step size.
 n=20                            # dimension of x, the parameter
 m=100                           # Total number of sensors
 sgm=1/math.sqrt(math.sqrt(n))   # variance for randomly choosing a1,a2,...,am
 ka=0.001                        # Quality of approximation, kappa
 #sgm=1
 
-k=30
+k=30                            # No. of sensors to select
 
 A=sgm*np.random.randn(m,n)
 
@@ -94,10 +94,10 @@ def comp_ns():                  # Compute newton step
     while(psi(z+ls*ns)<p+ls*b*(g.dot(ns))):
         ls=t*ls
 
-k=30                            # No. of sesors to select from m sensors
+#k=30                            # No. of sesors to select from m sensors
 def solve():
-    global m,n,ka,ls,k
-    global z,ns,nd,g,H
+    global m,n,ka,ls,k,SH
+    global z,ns,nd,g,H,zs,A
     z=(float(k)/m)*np.ones(m)              # Initial guess of feasible z
     comp_gH()
     comp_ns()
@@ -113,21 +113,125 @@ def solve():
 
     ### Now we have z*. Let's estimate z^ from z*.
     z=z.tolist()
+    zs={}
     for i in xrange(m):
         z[i]=(z[i],i)
+        zs[i]=z[i]
     z.sort(reverse=True)
-    
-    zh=[]
-    u=[]
-    for i in xrange(m):
-        if(i<k):
-            zh.append(z[i][1])
-        else:
-            u.append(z[i][1])
-    print z
-    print zh
-    print u
-    return zh,u
 
+    # Now we compute SH(sigma^) matrix
+
+    SH=np.zeros((n,n))
+    for i in xrange(k):
+        SH=SH+(A[z[i][1]].reshape(n,1)).dot(A[z[i][1]].reshape(1,n))
+    SH=np.linalg.inv(SH)
+
+    #zh=[]
+    #for i in xrange(m):
+    #    zh.append(0)
+    #for i in z[:k]:
+    #    zh[i[1]]=1
+
+    #print z
+    #print zh
+###
+
+def chk_swp(s,u,sh,mn=0,mx=1):           # Checks if a swap is possible and returns i,j
+    global m,n,ka,ls,k
+    global z,ns,nd,g,H,zs
+
+    SH=sh
+    
+    for i in xrange(k):
+        for j in xrange(m-k):
+            i1=i
+            j1=j
+            i=s[i][1]
+            j=u[j][1]
+            S=( ( np.eye(2) + np.vstack([A[i],A[j]]).dot(SH.dot(np.hstack([-A[i].reshape(n,1),A[j].reshape(n,1)]))) ) )
+            #if np.linalg.det(S)<0:
+            #    print "Hello, There"
+            #    print i1,j1
+            if s[i1][0]<=mx and mn<=u[j1][0]:
+                if np.linalg.det(S)>1:
+                    SH=SH-(SH.dot(np.hstack([-A[i].reshape(n,1),A[j].reshape(n,1)]).dot(np.linalg.inv(S).dot(np.vstack([A[i],A[j]]).dot(SH)))))
+                    #print "printing i,j:",i,j 
+                    return i1,j1
+            i=i1
+            j=j1
+    sh=SH
+    return -1,-1
+
+def locopt():               # perform local optimization ignoring order
+    global m,n,ka,ls,k,SH
+    global z,ns,nd,g,H,zs
+
+    s=z[:k]
+    u=z[k:]
+    u.reverse()
+
+    sh=np.zeros((n,n))
+    for i in xrange(k):
+        sh=sh+(A[z[i][1]].reshape(n,1)).dot(A[z[i][1]].reshape(1,n))
+    sh=np.linalg.inv(sh)
+
+
+    i,j=chk_swp(s,u,sh)
+
+    ctr=1
+    while(i!=-1):
+        print "swap in progress"
+        t=u[j]
+        u[j]=s[i]
+        s[i]=t
+        print "swaps:",ctr
+        ctr+=1
+        i,j=chk_swp(s,u,sh)
+
+    print s
+    print
+    print u
+    print
+    print math.log(np.linalg.det(np.linalg.inv(sh)))
+    print "local swaps:",ctr
+
+
+def rlocopt():               # perform restricted local optimization ignoring order
+    print("################# Starting rloc")
+    global m,n,ka,ls,k,SH
+    global z,ns,nd,g,H,zs
+
+    s=z[:k]
+    s.reverse()
+    u=z[k:]
+
+    sh=SH
+    
+    mn=0.1
+    mx=0.9
+
+    i,j=chk_swp(s,u,sh,mn,mx)
+
+    ctr=1
+    while(i!=-1):
+        print "swap in progress"
+        t=u[j]
+        u[j]=s[i]
+        s[i]=t
+        print "swaps:",ctr
+        ctr+=1
+        i,j=chk_swp(s,u,sh,mn,mx)
+
+    print s
+    print
+    print u
+    print
+    print math.log(np.linalg.det(np.linalg.inv(SH)))
+    print "rlocal swaps:",ctr
+
+
+### main
 solve()
+locopt()
+rlocopt()
 ###
